@@ -1,65 +1,72 @@
-import { fetchSheet, postSheet } from "$lib/api";
-import { navigate } from "$lib/router";
-import { type UserRow as User } from "$lib/types/sheets";
+// src/lib/state/auth.svelte.ts
 import { getContext, setContext } from "svelte";
+import { navigate } from "$lib/router";
+import { setAuthToken } from "$lib/api";
 
 class AuthState {
-	loggedin = $state(false);
-	loading = $state(true);
-	user = $state<User>();
+  loggedin = $state(false);
+  loading = $state(false);
+  user = $state<any>(null);
+  token = $state("");
 
-	async login({ username, password }: { username: string; password: string }) {
-		const { data: users } = await fetchSheet({ sheet: "USER" });
-		this.user = (users as User[]).find(
-			(u) => u.username === username && u.password === password,
-		);
-		if (this.user) {
-			await postSheet({
-				action: "update",
-				rows: [
-					{
-						...this.user,
-						lastLogin: new Date().toISOString(),
-					},
-				],
-			});
-			localStorage.setItem("auth", this.user.username);
-			this.loggedin = true;
-			return true;
-		}
-		return false;
-	}
+  async login({ username, password }: { username: string; password: string }) {
+    this.loading = true;
 
-	logout() {
-		localStorage.removeItem("auth");
-		this.loggedin = false;
-		this.user = undefined;
-		navigate("/auth/login");
-	}
+    const res = await fetch("http://localhost:5050/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password })
+    });
 
-	constructor() {
-		const loggedUser = localStorage.getItem("auth");
-		if (loggedUser) {
-			fetchSheet({ sheet: "USER" })
-				.then(({ data: res }) => {
-					this.user = (res as User[]).find((u) => u.username === loggedUser);
-					if (this.user) {
-						this.loggedin = true;
-					}
-				})
-				.finally(() => {
-					this.loading = false;
-				});
-		} else {
-			this.loading = false;
-		}
-	}
+    const data = await res.json();
+    this.loading = false;
+
+    if (!res.ok) return false;
+
+    // Save
+    this.token = data.token;
+    this.user = data.user;
+    this.loggedin = true;
+
+    localStorage.setItem("token", data.token);
+    localStorage.setItem("user", JSON.stringify(data.user));
+
+    // 🔥 Important: update axios token
+    setAuthToken(data.token);
+
+    return true;
+  }
+
+  logout() {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+
+    this.loggedin = false;
+    this.user = null;
+    this.token = "";
+
+    setAuthToken(""); // remove axios token
+    navigate("/auth/login");
+  }
+
+  constructor() {
+    const savedToken = localStorage.getItem("token");
+    const savedUser = localStorage.getItem("user");
+
+    if (savedToken && savedUser) {
+      this.token = savedToken;
+      this.user = JSON.parse(savedUser);
+      this.loggedin = true;
+
+      // 🔥 critical fix after refresh
+      setAuthToken(savedToken);
+    }
+  }
 }
 
-const AUTH_KEY = "auth-state";
+export const setAuth = () =>
+  setContext(Symbol.for("auth-state"), new AuthState());
 
-export const setAuth = () => setContext(Symbol.for(AUTH_KEY), new AuthState());
-
-export function useAuth(): AuthState {
-	return getContext(Symbol.for(AUTH_KEY));
+export function useAuth() {
+  return getContext(Symbol.for("auth-state"));
 }

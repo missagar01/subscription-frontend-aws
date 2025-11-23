@@ -1,378 +1,198 @@
 <script lang="ts">
 	import * as Dialog from "$lib/components/ui/dialog";
-	import { getContext } from "svelte";
+	import { getContext, createEventDispatcher } from "svelte";
 	import type { PendingPaymentsData } from "./columns";
+
 	import z from "zod";
 	import { createForm } from "felte";
 	import { validator } from "@felte/validator-zod";
+
 	import { Input } from "$lib/components/ui/input";
 	import { Label } from "$lib/components/ui/label";
 	import { Button } from "$lib/components/ui/button";
 	import * as RadioGroup from "$lib/components/ui/radio-group";
 	import * as Tooltip from "$lib/components/ui/tooltip";
+
 	import { cn } from "$lib/utils/cn";
 	import { CreditCard, Landmark, Smartphone } from "@lucide/svelte";
 	import Spinner from "$lib/components/element/Spinner.svelte";
-	import { calculateEndDate } from "$lib/utils/parsers";
-	import { postSheet, uploadFile } from "$lib/api";
-	import { useSheets } from "$lib/state/sheets.svelte";
 	import { toast } from "svelte-sonner";
 
-	const sheetState = useSheets();
+	const dispatch = createEventDispatcher();
 
 	const dialogState: {
 		selectedRow: PendingPaymentsData;
 		open: boolean;
 	} = getContext(Symbol.for("dialog-state"));
 
-	const currencyFormatter = Intl.NumberFormat("en-IN", {
-		style: "currency",
-		currency: "INR",
-	}).format;
+	/* -------------------------------------------
+	   🔥 Direct API Call (NO external file)
+	-------------------------------------------- */
+	const API_BASE = "http://localhost:5050/api/subscription-payment";
 
-	// Update schema to include price as a string
+	async function submitPayment(payload: any) {
+		const res = await fetch(`${API_BASE}/submit`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(payload)
+		});
+		return await res.json();
+	}
+
+	/* -------------------------------------------
+	   Form Schema
+	-------------------------------------------- */
 	const schema = z.object({
-		price: z.string().min(1, "Price is required"),
-		paymentMethod: z.enum(
-			["Credit Card", "Bank Transfer", "UPI"],
-			"Please select a valid payment method",
-		),
-		transactionId: z.string(),
-		startDate: z.coerce.date("Please fill the start date"),
-		endDate: z.coerce.date("Please fill the end date"),
-		insuranceDocument: z.file().optional(),
+		price: z.string().min(1, "Price required"),
+		paymentMethod: z.enum(["Credit Card", "Bank Transfer", "UPI"]),
+		transactionId: z.string().optional(),
+		startDate: z.coerce.date(),
+		endDate: z.coerce.date(),
+		insuranceDocument: z.any().optional()
 	});
 
-	// Initialize with empty values first
 	let initialValues = {
 		price: "",
 		paymentMethod: undefined,
 		transactionId: "",
-		startDate: undefined,
-		endDate: undefined,
-		insuranceDocument: undefined,
+		startDate: "",
+		endDate: "",
+		insuranceDocument: undefined
 	};
 
-	// Update initial values when dialogState is available using $effect
 	$effect(() => {
-		if (dialogState?.selectedRow) {
-			initialValues = {
-				...initialValues,
-				price: dialogState.selectedRow.price || "",
-			};
+		if (dialogState.selectedRow) {
+			initialValues.price = dialogState.selectedRow.price || "";
 		}
 	});
 
-	const { form, setTouched, reset, setFields, data, errors, isSubmitting } =
-		createForm<z.infer<typeof schema>>({
-			extend: [validator({ schema })],
-			initialValues,
-			onSubmit: async (values) => {
-				if (!dialogState?.selectedRow) {
-					toast.error("No subscription selected");
-					return;
-				}
+	const {
+		form,
+		setTouched,
+		reset,
+		setFields,
+		data: formData,
+		errors: formErrors,
+		isSubmitting: formSubmitting
+	} = createForm({
+		extend: [validator({ schema })],
+		initialValues,
 
-				let fileUrl = "";
-				if (values.insuranceDocument) {
-					fileUrl = await uploadFile(
-						values.insuranceDocument,
-						import.meta.env.VITE_ATTACHMENT_FOLDER,
-					);
-				}
+		onSubmit: async (values) => {
+			const payload = {
+				subscriptionNo: dialogState.selectedRow.subscriptionNo,
+				paymentMethod: values.paymentMethod,
+				transactionId: values.transactionId,
+				price: values.price,
+				startDate: values.startDate,
+				endDate: values.endDate,
+				insuranceDocument: ""
+			};
 
-				const currentRow = sheetState.subscriptionSheet.find(
-					(s) => s.subscriptionNo === dialogState.selectedRow.subscriptionNo,
-				);
+			const res = await submitPayment(payload);
 
-				if (!currentRow) {
-					toast.error("Subscription not found");
-					return;
-				}
-
-				// Update the subscription sheet with the new price
-				await postSheet({
-					action: "update",
-					rows: [
-						{
-							...currentRow,
-							price: values.price, // Update the price with the edited value
-							actual3: new Date().toISOString(),
-							actual1: "",
-							startDate: new Date(values.startDate).toDateString(),
-							endDate: new Date(values.endDate).toISOString(),
-						},
-					],
-				});
-				await postSheet({
-					action: "insert",
-					rows: [
-						{
-							sheetName: "PAYMENT",
-							timestamp: new Date().toISOString(),
-							subscriptionNo: currentRow.subscriptionNo,
-							paymentMode: values.paymentMethod,
-							transactionId:
-								values.transactionId ||
-								`TSI-${(sheetState.paymentSheet.length + 1).toString().padStart(4, "0")}`,
-							startDate: new Date(values.startDate).toISOString(),
-							insuranceDocument: fileUrl,
-						},
-					],
-				});
+			if (res.success) {
+				toast.success("Payment submitted");
 
 				dialogState.open = false;
-				sheetState.updateSubscription();
-				sheetState.updatePayment();
-				toast.success("Successfully updated payment and price");
-			},
-			onError: (context) => {
-				const firstError = Object.values(context.errors)?.[0] as string;
-				toast.error(firstError || "Submission failed");
-			},
-		});
 
-	// Function to handle start date change and auto-calculate end date
-	function handleStartDateChange(event: Event) {
-		const target = event.target as HTMLInputElement;
-		const startDate = target.value;
-
-		if (startDate && dialogState?.selectedRow) {
-			const calculatedEndDate = calculateEndDate(
-				startDate,
-				dialogState.selectedRow.frequency as any,
-			);
-
-			setFields("endDate", calculatedEndDate as any);
-		}
-	}
-
-	// Reset form when dialog opens with new data using $effect
-	$effect(() => {
-		if (dialogState?.open && dialogState?.selectedRow) {
-			setFields("price", dialogState.selectedRow.price || "");
+				dispatch("refreshPending");
+				dispatch("refreshHistory");
+			} else {
+				toast.error(res.error || "Failed");
+			}
 		}
 	});
 </script>
 
-<Dialog.Content
-	class="w-[1200px] max-h-[90vh] overflow-y-auto"
-	onclose={() => reset()}
->
-	{#if dialogState?.selectedRow}
-		<form use:form class="space-y-4">
-			<Dialog.Header>
-				<Dialog.Title>Payment for Subscription</Dialog.Title>
-				<Dialog.Description
-					>Subscription <span class="font-semibold"
-						>{dialogState.selectedRow.subscriptionNo}</span
-					></Dialog.Description
-				>
-			</Dialog.Header>
+<Dialog.Content class="w-[1200px] max-h-[90vh] overflow-y-auto">
+	<form use:form class="space-y-4">
+		<Dialog.Header>
+			<Dialog.Title>Payment for Subscription</Dialog.Title>
+			<Dialog.Description>
+				Subscription <strong>{dialogState.selectedRow.subscriptionNo}</strong>
+			</Dialog.Description>
+		</Dialog.Header>
 
-			<div class="grid grid-cols-2 gap-4">
-				<div class="grid gap-1">
-					<p class="text-sm text-muted-foreground font-semibold">
-						Subscriber Name
-					</p>
-					<p class="p-2 border rounded-md bg-muted/50 text-sm">
-						{dialogState.selectedRow.subscriberName}
-					</p>
-				</div>
-
-				<div class="grid gap-1">
-					<p class="text-sm text-muted-foreground font-semibold">
-						Subscription Name
-					</p>
-					<p class="p-2 border rounded-md bg-muted/50 text-sm">
-						{dialogState.selectedRow.subscriptionName}
-					</p>
-				</div>
-
-				<div class="grid gap-1">
-					<p class="text-sm text-muted-foreground font-semibold">Frequency</p>
-					<p class="p-2 border rounded-md bg-muted/50 text-sm">
-						{dialogState.selectedRow.frequency}
-					</p>
-				</div>
-
-				<div class="grid gap-1">
-					<p class="text-sm text-muted-foreground font-semibold">
-						Current Price
-					</p>
-					<p class="p-2 border rounded-md bg-muted/50 text-sm">
-						{currencyFormatter(parseFloat(dialogState.selectedRow.price))}
-					</p>
-				</div>
-
-				<div class="grid gap-2 col-span-2">
-					<Label for="price">New Price *</Label>
-					<Tooltip.Root disabled={!$errors.price}>
-						<Tooltip.Trigger>
-							<Input
-								name="price"
-								id="price"
-								type="text"
-								placeholder="Enter new price"
-								value={$data.price}
-								class="w-full"
-							/>
-						</Tooltip.Trigger>
-						<Tooltip.Content>{$errors.price}</Tooltip.Content>
-					</Tooltip.Root>
-				</div>
-
-				<div class="grid gap-1 col-span-2">
-					<p class="text-sm text-muted-foreground font-semibold">Description</p>
-					<p class="p-2 border rounded-md bg-muted/50 text-sm min-h-[60px]">
-						{dialogState.selectedRow.purpose}
-					</p>
-				</div>
-			</div>
-
-			<div class="grid grid-cols-2 gap-4">
-				<div class="grid gap-2">
-					<Label for="startDate">Start Date *</Label>
-					<Tooltip.Root disabled={!$errors.startDate}>
-						<Tooltip.Trigger>
-							<Input
-								name="startDate"
-								id="startDate"
-								type="date"
-								onchange={handleStartDateChange}
-								class="w-full"
-							/>
-						</Tooltip.Trigger>
-						<Tooltip.Content>{$errors.startDate}</Tooltip.Content>
-					</Tooltip.Root>
-				</div>
-
-				<div class="grid gap-2">
-					<Label for="endDate">End Date *</Label>
-					<Tooltip.Root disabled={!$errors.endDate}>
-						<Tooltip.Trigger>
-							<Input
-								name="endDate"
-								id="endDate"
-								type="date"
-								onchange={() => setTouched("endDate", true)}
-								class="w-full"
-							/>
-						</Tooltip.Trigger>
-						<Tooltip.Content>{$errors.endDate}</Tooltip.Content>
-					</Tooltip.Root>
-				</div>
-			</div>
-
-			<div class="grid gap-2">
-				<Label>Payment Method *</Label>
-				<Tooltip.Root disabled={!$errors.paymentMethod}>
-					<Tooltip.Trigger>
-						<RadioGroup.Root
-							name="paymentMethod"
-							class="grid grid-cols-1 gap-2"
-							value={$data.paymentMethod as string}
-							onValueChange={(val) => {
-								$data.paymentMethod = val as
-									| "Credit Card"
-									| "Bank Transfer"
-									| "UPI";
-								setTouched("paymentMethod", true);
-							}}
-						>
-							<div class="w-full">
-								<RadioGroup.Item
-									value="Credit Card"
-									id="credit-card"
-									class="hidden"
-								/>
-								<Label
-									class={cn(
-										"border text-center px-3 py-2 flex gap-2 items-center text-sm rounded-sm",
-										$data.paymentMethod === "Credit Card" &&
-											"outline outline-primary bg-primary/5",
-										$errors.paymentMethod && "outline outline-destructive",
-									)}
-									for="credit-card"
-									><CreditCard size={18} /><span>Credit Card</span></Label
-								>
-							</div>
-							<div class="w-full">
-								<RadioGroup.Item
-									value="Bank Transfer"
-									id="bank-transfer"
-									class="hidden"
-								/>
-								<Label
-									class={cn(
-										"border text-center px-3 py-2 flex gap-2 items-center text-sm rounded-sm",
-										$data.paymentMethod === "Bank Transfer" &&
-											"outline outline-primary bg-primary/5",
-										$errors.paymentMethod && "outline outline-destructive",
-									)}
-									for="bank-transfer"
-									><Landmark size={18} /><span>Bank Transfer</span></Label
-								>
-							</div>
-							<div class="w-full">
-								<RadioGroup.Item value="UPI" id="upi" class="hidden" />
-								<Label
-									class={cn(
-										"border text-center px-3 py-2 flex gap-2 items-center text-sm rounded-sm",
-										$data.paymentMethod === "UPI" &&
-											"outline outline-primary bg-primary/5",
-										$errors.paymentMethod && "outline outline-destructive",
-									)}
-									for="upi"><Smartphone size={18} /><span>UPI</span></Label
-								>
-							</div>
-						</RadioGroup.Root>
-					</Tooltip.Trigger>
-					<Tooltip.Content>{$errors.paymentMethod}</Tooltip.Content>
-				</Tooltip.Root>
-			</div>
-
-			<div class="grid grid-cols-1 gap-4">
-				<div class="grid gap-2">
-					<Label for="transactionId">Transaction ID</Label>
+		<!-- PRICE -->
+		<div class="grid gap-2">
+			<Label for="price">New Price *</Label>
+			<Tooltip.Root disabled={!$formErrors.price}>
+				<Tooltip.Trigger>
 					<Input
-						name="transactionId"
-						id="transactionId"
-						placeholder="Enter transaction ID, if available"
-						class="w-full"
+						name="price"
+						id="price"
+						type="text"
+						value={$formData.price}
 					/>
-				</div>
+				</Tooltip.Trigger>
+				<Tooltip.Content>{$formErrors.price}</Tooltip.Content>
+			</Tooltip.Root>
+		</div>
 
-				<div class="grid gap-2">
-					<Label for="insuranceDocument">Upload Insurance Document</Label>
-					<Tooltip.Root disabled={!$errors.insuranceDocument}>
-						<Tooltip.Trigger>
-							<Input
-								name="insuranceDocument"
-								id="insuranceDocument"
-								placeholder="Upload insurance document"
-								type="file"
-								class="w-full"
-							/>
-						</Tooltip.Trigger>
-						<Tooltip.Content>{$errors.insuranceDocument}</Tooltip.Content>
-					</Tooltip.Root>
-				</div>
+		<!-- DATES -->
+		<div class="grid grid-cols-2 gap-4">
+			<div>
+				<Label>Start Date *</Label>
+				<Input name="startDate" type="date" />
 			</div>
 
-			<Dialog.Footer class="pt-4">
-				<Button class="w-full" type="submit" disabled={$isSubmitting}>
-					{#if $isSubmitting}
-						<Spinner /> Submitting
-					{:else}
-						Submit
-					{/if}
-				</Button>
-			</Dialog.Footer>
-		</form>
-	{:else}
-		<div class="p-4 text-center">
-			<p>No subscription selected</p>
+			<div>
+				<Label>End Date *</Label>
+				<Input name="endDate" type="date" />
+			</div>
 		</div>
-	{/if}
+
+		<!-- PAYMENT METHOD -->
+		<div class="grid gap-2">
+			<Label>Payment Method *</Label>
+
+			<RadioGroup.Root
+				name="paymentMethod"
+				value={$formData.paymentMethod}
+				onValueChange={(v) => { 
+					$formData.paymentMethod = v; 
+					setTouched("paymentMethod", true); 
+				}}
+				class="grid gap-2"
+			>
+				<div>
+					<RadioGroup.Item id="cc" value="Credit Card" class="hidden" />
+					<Label for="cc" class={cn("border p-2 rounded flex items-center gap-2", $formData.paymentMethod === "Credit Card" && "bg-primary/10")}>
+						<CreditCard size={18}/> Credit Card
+					</Label>
+				</div>
+
+				<div>
+					<RadioGroup.Item id="bt" value="Bank Transfer" class="hidden" />
+					<Label for="bt" class={cn("border p-2 rounded flex items-center gap-2", $formData.paymentMethod === "Bank Transfer" && "bg-primary/10")}>
+						<Landmark size={18}/> Bank Transfer
+					</Label>
+				</div>
+
+				<div>
+					<RadioGroup.Item id="upi" value="UPI" class="hidden" />
+					<Label for="upi" class={cn("border p-2 rounded flex items-center gap-2", $formData.paymentMethod === "UPI" && "bg-primary/10")}>
+						<Smartphone size={18}/> UPI
+					</Label>
+				</div>
+			</RadioGroup.Root>
+		</div>
+
+		<!-- TRANSACTION ID -->
+		<div class="grid gap-2">
+			<Label for="transactionId">Transaction ID</Label>
+			<Input name="transactionId" id="transactionId" placeholder="Enter transaction ID" />
+		</div>
+
+		<Dialog.Footer>
+			<Button class="w-full" type="submit" disabled={$formSubmitting}>
+				{#if $formSubmitting}
+					<Spinner /> Saving...
+				{:else}
+					Submit
+				{/if}
+			</Button>
+		</Dialog.Footer>
+	</form>
 </Dialog.Content>

@@ -1,89 +1,93 @@
 <script lang="ts">
 	import { Root as DialogRoot } from "$lib/components/ui/dialog";
 	import * as Tabs from "$lib/components/ui/tabs";
-	import { setContext } from "svelte";
-	import {
-		paymentHistoryColumns,
-		pendingPaymentsColumns,
-		type paymentHistoryData,
-		type PendingPaymentsData,
-	} from "./columns";
-	import { useSheets } from "$lib/state/sheets.svelte";
-	import DataTable from "$lib/components/element/DataTable.svelte";
-	import ProcessForm from "./process-form.svelte";
-	import { useAuth } from "$lib/state/auth.svelte";
+	import { setContext, onMount } from "svelte";
 
-	const sheetState = useSheets();
-	const authState = useAuth();
+	import ProcessForm from "./process-form.svelte";
+	import DataTable from "$lib/components/element/DataTable.svelte";
+
+	import {
+		pendingPaymentsColumns,
+		paymentHistoryColumns,
+		type PendingPaymentsData,
+		type paymentHistoryData
+	} from "./columns";
+
+	/* -------------------------------------------
+	   🔥 Direct API Calls (NO external file)
+	-------------------------------------------- */
+	const API_BASE = "http://localhost:5050/api/subscription-payment";
+
+	async function getPendingPayments() {
+		const res = await fetch(`${API_BASE}/pending`);
+		return await res.json();
+	}
+
+	async function getPaymentHistory() {
+		const res = await fetch(`${API_BASE}/history`);
+		return await res.json();
+	}
 
 	let open = $state(false);
 	let selectedRow = $state<PendingPaymentsData>();
 
+	let pendingData: PendingPaymentsData[] = $state([]);
+	let historyData: paymentHistoryData[] = $state([]);
+
+	let loadingPending = $state(true);
+	let loadingHistory = $state(true);
+
 	setContext(Symbol.for("dialog-state"), {
-		get open() {
-			return open;
-		},
-		set open(value) {
-			open = value;
-		},
-		get selectedRow() {
-			return selectedRow;
-		},
-		set selectedRow(value) {
-			selectedRow = value;
-		},
+		get open() { return open; },
+		set open(v) { open = v; },
+
+		get selectedRow() { return selectedRow; },
+		set selectedRow(v) { selectedRow = v; }
 	});
 
-	let pendingData = $derived(
-		sheetState.subscriptionSheet
-			.filter((s) => s.actual3 === "" && s.planned3 !== "")
-			.filter(
-				(s) =>
-					authState.user?.role === "admin" ||
-					s.subscriberName === authState.user?.username,
-			)
-			.map((s) => ({
-				approvedOn: new Date(s.actual2),
-				company: s.companyName,
-				frequency: s.frequency,
-				price: s.price,
-				subscriberName:
-					sheetState.userSheet.find((u) => u.username === s.subscriberName)
-						?.name || "",
-				subscriptionName: s.subscriptionName,
-				purpose: s.purpose,
-				subscriptionNo: s.subscriptionNo,
-			})) satisfies PendingPaymentsData[],
-	);
+	onMount(async () => {
+		await loadPending();
+		await loadHistory();
+	});
 
-	let historyData = $derived(
-		sheetState.paymentSheet
-			.filter(
-				(s) =>
-					authState.user?.role === "admin" ||
-					sheetState.subscriptionSheet.find(
-						(r) => r.subscriptionNo === s.subscriptionNo,
-					)!.subscriberName === authState.user?.username,
-			)
-			.map((s) => {
-				const currentSheet = sheetState.subscriptionSheet.find(
-					(su) => s.subscriptionNo === su.subscriptionNo,
-				)!;
-				const subscriber = sheetState.userSheet.find(
-					(su) => su.username === currentSheet.subscriberName,
-				)!.name;
-				return {
-					company: currentSheet.companyName,
-					insuranceDocument: s.insuranceDocument,
-					paymentMode: s.paymentMode,
-					startDate: new Date(s.startDate),
-					subscriber,
-					subscriptionNo: s.subscriptionNo,
-					transactionId: s.transactionId,
-					paymentDate: new Date(s.timestamp),
-				};
-			}) satisfies paymentHistoryData[],
-	);
+async function loadPending() {
+	loadingPending = true;
+
+	const raw = await getPendingPayments();
+
+	pendingData = raw.map((row: any) => ({
+		subscriptionNo: row.subscription_no,
+		company: row.company_name,
+		subscriberName: row.subscriber_name,
+		subscriptionName: row.subscription_name,
+		purpose: row.purpose,
+		price: row.price,
+		frequency: row.frequency,
+		approvedOn: row.actual_2 ? new Date(row.actual_2) : null
+	}));
+
+	loadingPending = false;
+}
+
+async function loadHistory() {
+	loadingHistory = true;
+
+	const rawHistory = await getPaymentHistory();
+
+	historyData = rawHistory.map((row: any) => ({
+		paymentDate: new Date(row.timestamp),
+		subscriptionNo: row.subscription_no,
+		subscriber: row.subscriber_name,
+		company: row.company_name,
+		paymentMode: row.payment_mode,
+		transactionId: row.transaction_id,
+		insuranceDocument: row.insurance_document,
+		startDate: new Date(row.start_date)
+	}));
+
+	loadingHistory = false;
+}
+
 </script>
 
 <Tabs.Root value="pending">
@@ -96,24 +100,32 @@
 
 	<div class="md:p-5 md:pt-0">
 		<div class="bg-background p-5 rounded-md shadow-md">
+
+			<!-- PENDING -->
 			<Tabs.Content value="pending">
 				<DialogRoot bind:open>
 					<DataTable
 						columns={pendingPaymentsColumns}
 						data={pendingData}
-						bind:loading={sheetState.subscriptionLoading}
+						bind:loading={loadingPending}
 					/>
-					<ProcessForm />
+
+					<ProcessForm 
+						on:refreshPending={loadPending}
+						on:refreshHistory={loadHistory}
+					/>
 				</DialogRoot>
 			</Tabs.Content>
+
+			<!-- HISTORY -->
 			<Tabs.Content value="history">
 				<DataTable
 					columns={paymentHistoryColumns}
 					data={historyData}
-					bind:loading={sheetState.paymentLoading}
+					bind:loading={loadingHistory}
 				/>
 			</Tabs.Content>
-			<Tabs.Content value="history"></Tabs.Content>
+
 		</div>
 	</div>
 </Tabs.Root>

@@ -10,13 +10,22 @@
 	import { createForm } from "felte";
 	import { validator } from "@felte/validator-zod";
 	import { z } from "zod";
-	import { postSheet } from "$lib/api";
 	import { useSheets } from "$lib/state/sheets.svelte";
 	import { toast } from "svelte-sonner";
 	import { useAuth } from "$lib/state/auth.svelte";
 
+	import { onMount } from "svelte";
+
 	let sheetState = useSheets();
 	let authState = useAuth();
+	let newSubscriptionNo = ""; // ⭐ ADDED
+
+	// ⭐ Fetch subscription number from backend
+	onMount(async () => {
+		const res = await fetch("http://localhost:5050/api/subscription/generate-number");
+		const data = await res.json();
+		newSubscriptionNo = data.subscriptionNo;
+	});
 
 	const schema = z.object({
 		companyName: z.string().min(1, "Please enter company name"),
@@ -41,9 +50,10 @@
 		data,
 		isSubmitting,
 		reset,
-	} = // Add reset here
+	} =
 		createForm<z.infer<typeof schema>>({
 			extend: [validator({ schema })],
+
 			onSubmit: async ({
 				companyName,
 				frequency,
@@ -53,35 +63,41 @@
 				subscriptionName,
 			}) => {
 				let subscriberName = subName;
+
 				if (authState.user && authState.user?.role !== "admin") {
 					subscriberName = authState.user.name;
 				}
 
-				await postSheet({
-					action: "insert",
-					rows: [
-						{
-							sheetName: "SUBSCRIPTION",
-							timestamp: new Date().toISOString(),
-							subscriptionNo: `SUB-${(sheetState.subscriptionSheet.length + 1).toString().padStart(4, "0")}`,
-							price: price.toString(),
-							companyName,
-							frequency,
-							purpose,
-							subscriberName,
-							subscriptionName,
-						},
-					],
+				const res = await fetch("http://localhost:5050/api/subscription/create", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						timestamp: new Date().toISOString(),
+						subscriptionNo: newSubscriptionNo, // ⭐ FIXED
+						companyName,
+						subscriberName,
+						subscriptionName,
+						price,
+						frequency,
+						purpose,
+					}),
 				});
-				sheetState.updateSubscription();
-				toast.success("Request for new subscription has been submitted");
 
-				// Reset the form after successful submission
+				if (!res.ok) {
+					toast.error("Backend error: " + res.status);
+					return;
+				}
+
+				sheetState.updateSubscription();
+				toast.success("Request submitted!");
 				reset();
 			},
+
 			onError: (context) => {
-				const firstError = Object.values(context.errors)?.[0] as string;
-				toast.error(firstError || "Submission failed");
+				const err = context?.errors
+					? Object.values(context.errors)[0]
+					: "Submission failed.";
+				toast.error(err);
 			},
 		});
 

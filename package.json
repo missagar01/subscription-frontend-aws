@@ -43,8 +43,9 @@
 	},
 	"dependencies": {
 		"@felte/validator-zod": "^1.0.18",
+		"axios": "^1.13.2",
 		"felte": "^1.3.0",
 		"sv-router": "^0.7.2",
-		"zod": "^4.0.5"
+		"zod": "^3.25.76"
 	}
 }

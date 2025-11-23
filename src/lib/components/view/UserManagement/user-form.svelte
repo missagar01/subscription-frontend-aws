@@ -9,14 +9,15 @@
 	import { createForm } from "felte";
 	import z from "zod";
 	import type { UserData } from "./columns";
-	import { getContext } from "svelte";
+	import { getContext, createEventDispatcher } from "svelte";
 	import { Eye, EyeClosed } from "@lucide/svelte";
 	import Spinner from "$lib/components/element/Spinner.svelte";
-	import { useSheets } from "$lib/state/sheets.svelte";
-	import { postSheet } from "$lib/api";
 	import { toast } from "svelte-sonner";
+	import { useAuth } from "$lib/state/auth.svelte";
 
-	const sheetState = useSheets();
+	const dispatch = createEventDispatcher();
+	const authState = useAuth();
+	const API_BASE = "http://localhost:5050";
 
 	const dialogState: {
 		selectedRow: UserData | undefined;
@@ -30,69 +31,57 @@
 		username: z.string().nonempty("Please enter a username"),
 		name: z.string().nonempty("Please enter a name"),
 		password: z.string().nonempty("Please enter a password"),
-		email: z.string().nonempty("Please enter an email"),
-		role: z.enum(["admin", "user"], "Please select a valid user role"),
+		email: z.string().email("Invalid email format"),
+		role: z.enum(["admin", "user"], "Please select role"),
 	});
 
 	const { form, setTouched, setFields, reset, data, errors, isSubmitting } =
-		createForm<z.infer<typeof schema>>({
+		createForm({
 			extend: [validator({ schema })],
+
 			onSubmit: async (values) => {
-				if (
-					dialogState.typeForm === "Create" &&
-					sheetState.userSheet.find((u) => u.username === values.username)
-				) {
-					throw Error("Username already exists");
-				}
-				if (
-					dialogState.typeForm === "Edit" &&
-					dialogState.selectedRow?.username !== values.username &&
-					sheetState.userSheet.find((u) => u.username === values.username)
-				) {
-					throw Error("Username already exists");
-				}
+				const headers = {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${authState.token}`
+				};
 
 				if (dialogState.typeForm === "Create") {
-					await postSheet({
-						action: "insert",
-						rows: [{ sheetName: "USER", ...values }],
+					const res = await fetch(`${API_BASE}/api/users/create`, {
+						method: "POST",
+						headers,
+						body: JSON.stringify(values)
 					});
+
+					if (!res.ok) throw Error((await res.json()).error);
 				} else {
-					const currentRow = sheetState.userSheet.find(
-						(u) => u.username === values.username,
-					);
-					await postSheet({
-						action: "update",
-						rows: [
-							{
-								...currentRow,
-								...values,
-							},
-						],
+					const res = await fetch(`${API_BASE}/api/users/update/${dialogState.selectedRow?.username}`, {
+						method: "PUT",
+						headers,
+						body: JSON.stringify(values)
 					});
+
+					if (!res.ok) throw Error((await res.json()).error);
 				}
 
 				dialogState.open = false;
-				sheetState.updateUser();
-				toast.success(
-					`Successfully ${dialogState.typeForm.toLowerCase()}ed user`,
-				);
+				dispatch("refresh");
+				toast.success(`User ${dialogState.typeForm === "Create" ? "created" : "updated"} successfully`);
 			},
-			onError: (e: any) => {
-				console.log(e);
-				toast.error(e.message);
-			},
+
+			onError: (e) => toast.error(e.message),
 		});
+
+	// LOAD VALUES WHEN EDITING
 	$effect(() => {
 		if (dialogState.open && dialogState.selectedRow) {
 			setFields({
 				email: dialogState.selectedRow.user.email,
 				name: dialogState.selectedRow.user.name,
 				password: dialogState.selectedRow.password,
-				role: dialogState.selectedRow.role as "admin" | "user",
+				role: dialogState.selectedRow.role,
 				username: dialogState.selectedRow.username,
 			});
-		} else if (dialogState.open && dialogState.selectedRow === undefined) {
+		} else if (dialogState.open) {
 			reset();
 		}
 	});
@@ -103,7 +92,9 @@
 		<Dialog.Header>
 			<Dialog.Title>{dialogState.typeForm} User</Dialog.Title>
 		</Dialog.Header>
+
 		<div class="grid gap-4 md:grid-cols-2">
+			<!-- Username -->
 			<div class="grid gap-2">
 				<Label for="username">Username</Label>
 				<Tooltip.Root disabled={!$errors.username}>
@@ -113,6 +104,8 @@
 					<Tooltip.Content>{$errors.username}</Tooltip.Content>
 				</Tooltip.Root>
 			</div>
+
+			<!-- Password -->
 			<div class="grid gap-2">
 				<Label for="password">Password</Label>
 				<Tooltip.Root disabled={!$errors.password}>
@@ -120,7 +113,6 @@
 						<div class="relative">
 							<Input
 								name="password"
-								id="passowrd"
 								placeholder="Enter password"
 								type={passwordVisible ? "text" : "password"}
 							/>
@@ -131,74 +123,56 @@
 								type="button"
 								onclick={() => (passwordVisible = !passwordVisible)}
 							>
-								{#if passwordVisible}
-									<EyeClosed />
-								{:else}
-									<Eye />
-								{/if}
+								{#if passwordVisible}<EyeClosed />{:else}<Eye />{/if}
 							</Button>
 						</div>
 					</Tooltip.Trigger>
 					<Tooltip.Content>{$errors.password}</Tooltip.Content>
 				</Tooltip.Root>
 			</div>
+
+			<!-- Name -->
 			<div class="grid gap-2">
 				<Label for="name">Name</Label>
-				<Tooltip.Root disabled={!$errors.name}>
-					<Tooltip.Trigger
-						><Input
-							name="name"
-							id="name"
-							placeholder="Enter name"
-						/></Tooltip.Trigger
-					>
-					<Tooltip.Content>{$errors.name}</Tooltip.Content>
-				</Tooltip.Root>
+				<Input name="name" placeholder="Enter name" />
 			</div>
+
+			<!-- Email -->
 			<div class="grid gap-2">
 				<Label for="email">Email</Label>
-				<Tooltip.Root disabled={!$errors.email}>
-					<Tooltip.Trigger
-						><Input
-							name="email"
-							id="email"
-							placeholder="Enter email"
-						/></Tooltip.Trigger
-					>
-					<Tooltip.Content>{$errors.email}</Tooltip.Content>
-				</Tooltip.Root>
+				<Input name="email" placeholder="Enter email" />
 			</div>
 		</div>
+
+		<!-- Role -->
 		<div class="grid gap-2">
 			<Label>Role of User</Label>
+
 			<Select.Root
 				name="role"
 				type="single"
 				bind:value={$data.role}
 				onValueChange={() => setTouched("role", true)}
 			>
-				<Tooltip.Root disabled={!$errors.role}>
-					<Tooltip.Trigger>
-						<Select.Trigger
-							aria-invalid={$errors.role ? true : undefined}
-							class="w-full"
-							>{$data.role
-								? $data.role
-								: "Select review option"}</Select.Trigger
-						>
-					</Tooltip.Trigger>
-					<Tooltip.Content>{$errors.role}</Tooltip.Content>
-				</Tooltip.Root>
+				<Select.Trigger class="w-full">
+					{$data.role || "Select role"}
+				</Select.Trigger>
+
 				<Select.Content>
 					<Select.Item value="admin">admin</Select.Item>
 					<Select.Item value="user">user</Select.Item>
 				</Select.Content>
 			</Select.Root>
+
+			{#if $errors.role}
+				<p class="text-red-500 text-sm">{$errors.role}</p>
+			{/if}
 		</div>
+
 		<Dialog.Footer>
 			<Button class="w-full" type="submit" disabled={$isSubmitting}>
 				{#if $isSubmitting}
-					<Spinner /> Submitting
+					<Spinner /> Submitting...
 				{:else}
 					Submit
 				{/if}

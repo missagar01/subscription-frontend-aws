@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { Root as DialogRoot } from "$lib/components/ui/dialog";
-	import { useSheets } from "$lib/state/sheets.svelte";
 	import { setContext } from "svelte";
 	import { userColumns, type UserData } from "./columns";
 	import DataTable from "$lib/components/element/DataTable.svelte";
@@ -8,45 +7,59 @@
 	import { UserPlus } from "@lucide/svelte";
 	import UserForm from "./user-form.svelte";
 	import { Dialog } from "bits-ui";
+	import { useAuth } from "$lib/state/auth.svelte";
 
-	const sheetState = useSheets();
 	let open = $state(false);
 	let selectedRow = $state<UserData>();
 	let typeForm = $state<"Edit" | "Create">("Create");
 
+	const authState = useAuth();
+	const API_BASE = "http://localhost:5050";
+
+	let users = $state<UserData[]>([]);
+	let loading = $state(true);
+
 	setContext(Symbol.for("dialog-state"), {
-		get open() {
-			return open;
-		},
-		set open(value) {
-			open = value;
-		},
-		get selectedRow() {
-			return selectedRow;
-		},
-		set selectedRow(value) {
-			selectedRow = value;
-		},
-		get typeForm() {
-			return typeForm;
-		},
-		set typeForm(value) {
-			typeForm = value;
-		},
+		get open() { return open },
+		set open(v) { open = v },
+
+		get selectedRow() { return selectedRow },
+		set selectedRow(v) { selectedRow = v },
+
+		get typeForm() { return typeForm },
+		set typeForm(v) { typeForm = v }
 	});
 
-	let users = $derived(
-		sheetState.userSheet.map((s) => ({
-			lastLogin: new Date(s.lastLogin),
-			role: s.role,
-			user: {
-				email: s.email,
-				name: s.name,
-			},
-			username: s.username,
-			password: s.password,
-		})) satisfies UserData[],
-	);
+	// 🔥 Fetch from backend
+	async function loadUsers() {
+		try {
+			loading = true;
+
+			const res = await fetch(`${API_BASE}/api/users`, {
+				headers: {
+					Authorization: `Bearer ${authState.token}`
+				}
+			});
+
+			const data = await res.json();
+			if (!Array.isArray(data)) return;
+
+			users = data.map((u) => ({
+				lastLogin: u.last_login ? new Date(u.last_login) : null,
+				role: u.role,
+				user: { email: u.email, name: u.name },
+				username: u.username,
+				password: u.password
+			}));
+		} finally {
+			loading = false;
+		}
+	}
+
+	// PAGE LOAD
+	$effect.pre(() => {
+		loadUsers();
+	});
 </script>
 
 <div class="md:p-5 md:pt-0">
@@ -55,18 +68,19 @@
 			<DataTable
 				columns={userColumns}
 				data={users}
-				loading={sheetState.userLoading}
+				loading={loading}
 				class="h-[84dvh] md:h-[79dvh]"
 			>
-				<Button
-					onclick={() => {
-						selectedRow = undefined;
-						typeForm = "Create";
-						open = true;
-					}}><UserPlus />Create User</Button
-				>
+				<Button onclick={() => {
+					selectedRow = undefined;
+					typeForm = "Create";
+					open = true;
+				}}>
+					<UserPlus /> Create User
+				</Button>
 			</DataTable>
-			<UserForm />
+
+			<UserForm on:refresh={() => loadUsers()} />
 		</DialogRoot>
 	</div>
 </div>

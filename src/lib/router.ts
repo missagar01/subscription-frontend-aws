@@ -42,26 +42,6 @@ export const routes = {
 				admin: false,
 			},
 		},
-		"/my-subscriptions": {
-			"/": MySubscriptions,
-			meta: {
-				title: "My Subscriptions",
-				subtext: "Manage and track all your subscription services",
-				icon: ClipboardList,
-				admin: false,
-			},
-		},
-		"/renewals": {
-			"/": Renewals,
-			meta: {
-				title: "Renewals",
-				subtext: "Renew subscriptions that have passed end date",
-				icon: RotateCcw,
-				admin: false,
-				notifications: (sheets: SubscriptionRow[]) =>
-					sheets.filter((s) => s.planned1 !== "" && s.actual1 === "").length,
-			},
-		},
 		"/pending-approvals": {
 			"/": PendingApproval,
 			meta: {
@@ -82,6 +62,26 @@ export const routes = {
 				admin: false,
 				notifications: (sheets: SubscriptionRow[]) =>
 					sheets.filter((s) => s.actual3 === "" && s.planned3 !== "").length,
+			},
+		},
+		"/renewals": {
+			"/": Renewals,
+			meta: {
+				title: "Renewals",
+				subtext: "Renew subscriptions that have passed end date",
+				icon: RotateCcw,
+				admin: false,
+				notifications: (sheets: SubscriptionRow[]) =>
+					sheets.filter((s) => s.planned1 !== "" && s.actual1 === "").length,
+			},
+		},
+		"/my-subscriptions": {
+			"/": MySubscriptions,
+			meta: {
+				title: "My Subscriptions",
+				subtext: "Manage and track all your subscription services",
+				icon: ClipboardList,
+				admin: false,
 			},
 		},
 		"/user-management": {

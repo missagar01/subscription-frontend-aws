@@ -11,7 +11,6 @@
 	import { Button } from "$lib/components/ui/button";
 	import { Tooltip } from "bits-ui";
 	import Spinner from "$lib/components/element/Spinner.svelte";
-	import { postSheet } from "$lib/api";
 	import { useSheets } from "$lib/state/sheets.svelte";
 	import { useAuth } from "$lib/state/auth.svelte";
 	import { toast } from "svelte-sonner";
@@ -19,73 +18,63 @@
 	const sheetState = useSheets();
 	const authState = useAuth();
 
+	const currencyFormatter = Intl.NumberFormat("en-IN", {
+	style: "currency",
+	currency: "INR",
+}).format;
+
+const dateFormatter = Intl.DateTimeFormat("en-IN", {
+	dateStyle: "medium",
+}).format;
+
+
 	const dialogState: {
 		selectedRow: PendingApprovalData;
 		open: boolean;
 	} = getContext(Symbol.for("dialog-state"));
 
-	const currencyFormatter = Intl.NumberFormat("en-IN", {
-		style: "currency",
-		currency: "INR",
-	}).format;
-
-	const dateFormatter = Intl.DateTimeFormat("en-IN", {
-		dateStyle: "medium",
-	}).format;
-
 	const schema = z.object({
-		approval: z.enum(
-			["Approved", "Rejected"],
-			"Please select valid approval option",
-		),
-		note: z.string(),
+		approval: z.enum(["Approved", "Rejected"]),
+		note: z.string()
 	});
 
-	const { form, setTouched, data, errors, isSubmitting, reset } = createForm<
-		z.infer<typeof schema>
-	>({
-		extra: [validator({ schema })],
-		onSubmit: async (values) => {
-			const currentRow = sheetState.subscriptionSheet.find(
-				(s) => s.subscriptionNo === dialogState.selectedRow.subscriptionNo,
-			)!;
-			await postSheet({
-				action: "update",
-				rows: [
+	const { form, setTouched, data, errors, isSubmitting, reset } =
+		createForm<z.infer<typeof schema>>({
+			extend: [validator({ schema })],
+			onSubmit: async (values) => {
+				const payload = {
+					subscriptionNo: dialogState.selectedRow.subscriptionNo,
+					approval: values.approval,
+					note: values.note,
+					approvedBy: authState.user?.name,
+					requestedOn: dialogState.selectedRow.requestedOn.toISOString()
+				};
+
+				const res = await fetch(
+					"http://localhost:5050/api/subscription-approval/submit",
 					{
-						...currentRow,
-						actual2: new Date().toISOString(),
-						approvalStatus: values.approval,
-						actual3: "",
-					},
-				],
-			});
-			await postSheet({
-				action: "insert",
-				rows: [
-					{
-						sheetName: "APPROVAL",
-						timestamp: new Date().toISOString(),
-						approvalNo: `APG-${(sheetState.approvalSheet.length + 1).toString().padStart(4, "0")}`,
-						subscriptionNo: dialogState.selectedRow.subscriptionNo,
-						approvedBy: authState.user?.name,
-						approvalStatus: values.approval,
-						requestedOn: dialogState.selectedRow.requestedOn.toISOString(),
-						note: values.note,
-					},
-				],
-			});
-			dialogState.open = false;
-			sheetState.updateSubscription();
-			sheetState.updateApproval();
-			toast.success("Successfully updated status");
-		},
-		onError: (e: any) => {
-			console.log(e);
-			toast.error(e.message);
-		},
-	});
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify(payload)
+					}
+				);
+
+				if (!res.ok) {
+					toast.error("Backend Error");
+					return;
+				}
+
+				// Refresh sheet-like cached data
+				await sheetState.updateSubscription();
+				await sheetState.updateApproval();
+
+				dialogState.open = false;
+				toast.success("Successfully updated status");
+			},
+			onError: (err) => toast.error("Invalid form")
+		});
 </script>
+
 
 <Dialog.Content
 	class="w-[1200px] max-h-[90vh] overflow-y-auto"

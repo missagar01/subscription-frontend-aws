@@ -6,72 +6,89 @@
 	import * as Dialog from "$lib/components/ui/dialog";
 	import * as Select from "$lib/components/ui/select";
 	import type { PendingRenewalData } from "./columns";
-	import { getContext } from "svelte";
-	import { useSheets } from "$lib/state/sheets.svelte";
+	import { getContext, createEventDispatcher } from "svelte";
 	import { validator } from "@felte/validator-zod";
 	import { createForm } from "felte";
 	import { z } from "zod";
 	import { toast } from "svelte-sonner";
-	import { postSheet } from "$lib/api";
 	import { useAuth } from "$lib/state/auth.svelte";
 
-	const sheetState = useSheets();
 	const authState = useAuth();
+	const dispatch = createEventDispatcher();
 
 	const dialogState: {
 		selectedRow: PendingRenewalData;
 		open: boolean;
 	} = getContext(Symbol.for("dialog-state"));
 
+	/* ----------------------------
+	   Backend API base for renewal
+	-----------------------------*/
+	const API_BASE = "http://localhost:5050/api/subscription-renewal";
+
+	async function submitRenewalToBackend(payload: any) {
+		const res = await fetch(`${API_BASE}/submit`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(payload),
+		});
+
+		return await res.json();
+	}
+
 	const schema = z.object({
 		renew: z.enum(["Renewed", "Not Renewed"]),
 	});
 
-	const { form, setTouched, data, errors, isSubmitting } = createForm<
-		z.infer<typeof schema>
-	>({
+	const {
+		form,
+		setTouched,
+		data: formData,
+		errors: formErrors,
+		isSubmitting: formSubmitting,
+	} = createForm<z.infer<typeof schema>>({
 		extend: [validator({ schema })],
+		initialValues: {
+			renew: undefined,
+		},
 		onSubmit: async (values) => {
-			const currentRow = sheetState.subscriptionSheet.find(
-				(s) => s.subscriptionNo === dialogState.selectedRow.subscriptionNo,
-			)!;
-			await postSheet({
-				action: "update",
-				rows: [
-					{
-						...currentRow,
-						actual1: new Date().toISOString(),
-						actual2: "",
-						renewalCount: (
-							(parseInt(currentRow.renewalCount) || 0) + 1
-						).toString(),
-						renewalStatus: values.renew,
-					},
-				],
-			});
+			try {
+				const selected = dialogState.selectedRow;
 
-			await postSheet({
-				action: "insert",
-				rows: [
-					{
-						sheetName: "RENEWAL",
-						renewalNo: `REN-${(sheetState.renewalSheet.length + 1).toString().padStart(4, "0")}`,
-						timestamp: new Date().toISOString(),
-						subscriptionNo: currentRow.subscriptionNo,
-						approvedBy: authState.user?.name,
-						renewalStatus: values.renew,
-						price: currentRow.price
-					},
-				],
-			});
-			dialogState.open = false;
-			sheetState.updateSubscription();
-			sheetState.updateApproval();
-			toast.success("Successfully renewed subscription");
+				if (!selected) {
+					toast.error("No subscription selected");
+					return;
+				}
+
+				const payload = {
+					subscription_no: selected.subscriptionNo,
+					renewal_status: values.renew,
+					approved_by: authState.user?.name || authState.user?.username || "System",
+					price: parseFloat(selected.price),
+				};
+
+				const res = await submitRenewalToBackend(payload);
+
+				if (!res.success) {
+					toast.error(res.error || "Failed to renew subscription");
+					return;
+				}
+
+				toast.success("Successfully renewed subscription");
+
+				dialogState.open = false;
+
+				// ask parent to reload pending + history tables
+				dispatch("refreshPending");
+				dispatch("refreshHistory");
+			} catch (e: any) {
+				console.error(e);
+				toast.error("Something went wrong during renewal");
+			}
 		},
 		onError: (e: any) => {
 			console.log(e);
-			toast.error(e.message);
+			toast.error(e?.message || "Validation error");
 		},
 	});
 
@@ -89,11 +106,12 @@
 	<form use:form class="grid gap-4">
 		<Dialog.Header>
 			<Dialog.Title>Renew Subscription</Dialog.Title>
-			<Dialog.Description
-				>Subscription <span class="font-semibold"
-					>{dialogState.selectedRow.subscriptionNo}</span
-				></Dialog.Description
-			>
+			<Dialog.Description>
+				Subscription
+				<span class="font-semibold">
+					{dialogState.selectedRow.subscriptionNo}
+				</span>
+			</Dialog.Description>
 		</Dialog.Header>
 
 		<div class="grid sm:grid-cols-2 gap-4">
@@ -134,20 +152,21 @@
 			<Select.Root
 				name="renew"
 				type="single"
-				bind:value={$data.renew}
+				bind:value={$formData.renew}
 				onValueChange={() => setTouched("renew", true)}
 			>
-				<Tooltip.Root disabled={!$errors.renew}>
+				<Tooltip.Root disabled={!$formErrors.renew}>
 					<Tooltip.Trigger>
 						<Select.Trigger
-							aria-invalid={$errors.renew ? true : undefined}
+							aria-invalid={$formErrors.renew ? true : undefined}
 							class="w-full"
-							>{$data.renew
-								? $data.renew
-								: "Select renewal option"}</Select.Trigger
 						>
+							{$formData.renew
+								? $formData.renew
+								: "Select renewal option"}
+						</Select.Trigger>
 					</Tooltip.Trigger>
-					<Tooltip.Content>{$errors.renew}</Tooltip.Content>
+					<Tooltip.Content>{$formErrors.renew}</Tooltip.Content>
 				</Tooltip.Root>
 				<Select.Content>
 					<Select.Item value="Renewed">Renewed</Select.Item>
@@ -155,9 +174,10 @@
 				</Select.Content>
 			</Select.Root>
 		</div>
+
 		<Dialog.Footer>
-			<Button class="w-full" type="submit" disabled={$isSubmitting}>
-				{#if $isSubmitting}
+			<Button class="w-full" type="submit" disabled={$formSubmitting}>
+				{#if $formSubmitting}
 					<Spinner /> Submitting
 				{:else}
 					Submit

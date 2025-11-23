@@ -13,7 +13,7 @@ export type UserData = {
 	username: string;
 	role: string;
 	password: string;
-	lastLogin: Date;
+	lastLogin: Date | null; // 👈 IMPORTANT
 };
 
 export const userColumns: ColumnDef<UserData>[] = [
@@ -49,18 +49,33 @@ export const userColumns: ColumnDef<UserData>[] = [
 				header: "Last Login",
 				onclick: column.getToggleSortingHandler(),
 			}),
+
+		/* 🔥 FIXED CELL */
 		cell: ({ row }) => {
+			const value = row.getValue("lastLogin") as Date | null;
+
+			// Handle null / undefined safely
+			if (!value) {
+				return renderSnippet(
+					createRawSnippet(() => ({
+						render: () => `<p>No login yet</p>`,
+					})),
+					""
+				);
+			}
+
 			const formatter = Intl.DateTimeFormat("en-IN", {
 				dateStyle: "medium",
 				timeStyle: "medium",
 			});
-			const value = row.getValue("lastLogin") as Date;
+
 			const cellSnippet = createRawSnippet((getDate: () => string) => ({
 				render: () => `<p>${getDate()}</p>`,
 			}));
+
 			return renderSnippet(
 				cellSnippet,
-				isNaN(value.getTime()) ? "No login yet" : formatter.format(value),
+				isNaN(value.getTime()) ? "No login yet" : formatter.format(value)
 			);
 		},
 	},
