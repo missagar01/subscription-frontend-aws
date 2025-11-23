@@ -20,9 +20,11 @@
 	let authState = useAuth();
 	let newSubscriptionNo = ""; // ⭐ ADDED
 
+	const API = import.meta.env.VITE_API_BASE_URL;
+
 	// ⭐ Fetch subscription number from backend
 	onMount(async () => {
-		const res = await fetch("http://localhost:5050/api/subscription/generate-number");
+		const res = await fetch(`${API}/subscription/generate-number`);
 		const data = await res.json();
 		newSubscriptionNo = data.subscriptionNo;
 	});
@@ -68,7 +70,7 @@
 					subscriberName = authState.user.name;
 				}
 
-				const res = await fetch("http://localhost:5050/api/subscription/create", {
+				const res = await fetch(`${API}/subscription/create`, {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({

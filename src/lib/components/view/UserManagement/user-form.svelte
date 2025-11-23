@@ -17,7 +17,8 @@
 
 	const dispatch = createEventDispatcher();
 	const authState = useAuth();
-	const API_BASE = "http://localhost:5050";
+	// const API_BASE = "http://localhost:5050";
+	const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
 	const dialogState: {
 		selectedRow: UserData | undefined;
@@ -46,7 +47,8 @@
 				};
 
 				if (dialogState.typeForm === "Create") {
-					const res = await fetch(`${API_BASE}/api/users/create`, {
+					// const res = await fetch(`${API_BASE}/api/users/create`, {
+					const res = await fetch(`${API_BASE}/users/create`, {
 						method: "POST",
 						headers,
 						body: JSON.stringify(values)
@@ -54,7 +56,7 @@
 
 					if (!res.ok) throw Error((await res.json()).error);
 				} else {
-					const res = await fetch(`${API_BASE}/api/users/update/${dialogState.selectedRow?.username}`, {
+					const res = await fetch(`${API_BASE}/users/update/${dialogState.selectedRow?.username}`, {
 						method: "PUT",
 						headers,
 						body: JSON.stringify(values)

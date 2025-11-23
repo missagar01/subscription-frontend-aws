@@ -28,7 +28,8 @@
 	/* -------------------------------------------
 	   🔥 Direct API Call (NO external file)
 	-------------------------------------------- */
-	const API_BASE = "http://localhost:5050/api/subscription-payment";
+	const API_BASE1 = import.meta.env.VITE_API_BASE_URL;
+	const API_BASE = `${API_BASE1}/subscription-payment`;
 
 	async function submitPayment(payload: any) {
 		const res = await fetch(`${API_BASE}/submit`, {

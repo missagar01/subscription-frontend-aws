@@ -9,7 +9,8 @@
 	let loading = $derived(loadingRaw);
 
 	const authState = useAuth();
-	const API_BASE = import.meta.env.VITE_BACKEND_URL || "http://localhost:5050";
+	// const API_BASE = import.meta.env.VITE_BACKEND_URL || "http://localhost:5050";
+	const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
 	async function loadSubscriptions() {
 		try {
@@ -18,7 +19,7 @@
 			const token = authState.token;
 			if (!token) return;
 
-			const res = await fetch(`${API_BASE}/api/mySubscriptions`, {
+			const res = await fetch(`${API_BASE}/mySubscriptions`, {
 				headers: {
 					"Content-Type": "application/json",
 					Authorization: `Bearer ${token}`,

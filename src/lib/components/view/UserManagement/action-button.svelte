@@ -11,7 +11,8 @@
 	const dispatch = createEventDispatcher();
 
 	const authState = useAuth();
-	const API_BASE = "http://localhost:5050";
+	// const API_BASE = "http://localhost:5050";
+	const API_BASE = import.meta.env.VITE_API_BASE_URL;
 </script>
 
 <div class="flex justify-center">
@@ -39,7 +40,7 @@
 				class="flex gap-2 text-destructive"
 				onclick={async () => {
 					toast.promise(
-						fetch(`${API_BASE}/api/users/delete/${currentRow.username}`, {
+						fetch(`${API_BASE}/users/delete/${currentRow.username}`, {
 							method: "DELETE",
 							headers: {
 								Authorization: `Bearer ${authState.token}`

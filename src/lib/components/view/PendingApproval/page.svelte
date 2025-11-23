@@ -25,7 +25,8 @@
 	onMount(async () => {
 
 		// Load Pending
-		const res1 = await fetch("http://localhost:5050/api/subscription-approval/pending");
+		const API_BASE = import.meta.env.VITE_API_BASE_URL;
+		const res1 = await fetch(`${API_BASE}/subscription-approval/pending`);
 		const pending = await res1.json();
 
 		pendingData = pending.map((s) => ({
@@ -40,7 +41,7 @@
 		}));
 
 		// Load History
-		const res2 = await fetch("http://localhost:5050/api/subscription-approval/history");
+		const res2 = await fetch(`${API_BASE}/subscription-approval/history`);
 		const history = await res2.json();
 
 		historyData = history.map((s) => ({

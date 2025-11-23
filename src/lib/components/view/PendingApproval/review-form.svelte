@@ -50,14 +50,17 @@ const dateFormatter = Intl.DateTimeFormat("en-IN", {
 					requestedOn: dialogState.selectedRow.requestedOn.toISOString()
 				};
 
-				const res = await fetch(
-					"http://localhost:5050/api/subscription-approval/submit",
-					{
-						method: "POST",
-						headers: { "Content-Type": "application/json" },
-						body: JSON.stringify(payload)
-					}
-				);
+				const API_BASE = import.meta.env.VITE_API_BASE_URL;
+
+const res = await fetch(
+  `${API_BASE}/subscription-approval/submit`,
+  {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  }
+);
+
 
 				if (!res.ok) {
 					toast.error("Backend Error");

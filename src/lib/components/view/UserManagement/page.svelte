@@ -14,7 +14,8 @@
 	let typeForm = $state<"Edit" | "Create">("Create");
 
 	const authState = useAuth();
-	const API_BASE = "http://localhost:5050";
+	// const API_BASE = "http://localhost:5050";
+	const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
 	let users = $state<UserData[]>([]);
 	let loading = $state(true);
@@ -35,7 +36,7 @@
 		try {
 			loading = true;
 
-			const res = await fetch(`${API_BASE}/api/users`, {
+			const res = await fetch(`${API_BASE}/users`, {
 				headers: {
 					Authorization: `Bearer ${authState.token}`
 				}
