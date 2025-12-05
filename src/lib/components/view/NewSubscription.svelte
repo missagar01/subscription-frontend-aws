@@ -24,7 +24,7 @@
 	let users = $state<Array<{ username: string; name: string }>>([]);
 
 	const API = import.meta.env.VITE_API_BASE_URL;
-	const API1 = "http://localhost:5050"
+	const API1 = "http://15.206.75.247:5050"
 
 	// ⭐ Fetch subscription number from backend and load necessary data
 	onMount(async () => {
