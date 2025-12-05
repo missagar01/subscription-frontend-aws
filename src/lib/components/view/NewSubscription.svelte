@@ -24,7 +24,6 @@
 	let users = $state<Array<{ username: string; name: string }>>([]);
 
 	const API = import.meta.env.VITE_API_BASE_URL;
-	const API1 = "http://15.206.75.247:5050"
 
 	// ⭐ Fetch subscription number from backend and load necessary data
 	onMount(async () => {
@@ -39,7 +38,7 @@
 				// Load company names from master
 				(async () => {
 					try {
-						const response = await fetch(`${API1}/master`);
+						const response = await fetch(`${API}/master`);
 						const masterData = await response.json();
 						companyNames = masterData.companyName || [];
 					} catch (error) {
@@ -50,7 +49,7 @@
 				// Load users for admin dropdown
 				(async () => {
 					try {
-						const response = await fetch(`${API1}/users1`);
+						const response = await fetch(`${API}/users1`);
 						const userData = await response.json();
 						users = userData.data || [];
 					} catch (error) {
