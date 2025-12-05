@@ -18,15 +18,52 @@
 
 	let sheetState = useSheets();
 	let authState = useAuth();
-	let newSubscriptionNo = ""; // ⭐ ADDED
+	let newSubscriptionNo = "";
+	let isDataLoaded = $state(false);
+	let companyNames = $state<string[]>([]);
+	let users = $state<Array<{ username: string; name: string }>>([]);
 
 	const API = import.meta.env.VITE_API_BASE_URL;
+	const API1 = "http://localhost:5050"
 
-	// ⭐ Fetch subscription number from backend
+	// ⭐ Fetch subscription number from backend and load necessary data
 	onMount(async () => {
-		const res = await fetch(`${API}/subscription/generate-number`);
-		const data = await res.json();
-		newSubscriptionNo = data.subscriptionNo;
+		try {
+			// Fetch subscription number
+			const res = await fetch(`${API}/subscription/generate-number`);
+			const data = await res.json();
+			newSubscriptionNo = data.subscriptionNo;
+
+			// ⭐ Load company names and users
+			await Promise.all([
+				// Load company names from master
+				(async () => {
+					try {
+						const response = await fetch(`${API1}/master`);
+						const masterData = await response.json();
+						companyNames = masterData.companyName || [];
+					} catch (error) {
+						console.error("Failed to load company names:", error);
+					}
+				})(),
+				
+				// Load users for admin dropdown
+				(async () => {
+					try {
+						const response = await fetch(`${API1}/users1`);
+						const userData = await response.json();
+						users = userData.data || [];
+					} catch (error) {
+						console.error("Failed to load users:", error);
+					}
+				})()
+			]);
+			
+			isDataLoaded = true;
+		} catch (error) {
+			console.error("Failed to initialize form:", error);
+			toast.error("Failed to load form data");
+		}
 	});
 
 	const schema = z.object({
@@ -75,7 +112,7 @@
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({
 						timestamp: new Date().toISOString(),
-						subscriptionNo: newSubscriptionNo, // ⭐ FIXED
+						subscriptionNo: newSubscriptionNo,
 						companyName,
 						subscriberName,
 						subscriptionName,
@@ -93,6 +130,15 @@
 				sheetState.updateSubscription();
 				toast.success("Request submitted!");
 				reset();
+				
+				// Refresh subscription number for next submission
+				try {
+					const newRes = await fetch(`${API}/subscription/generate-number`);
+					const newData = await newRes.json();
+					newSubscriptionNo = newData.subscriptionNo;
+				} catch (error) {
+					console.error("Failed to refresh subscription number:", error);
+				}
 			},
 
 			onError: (context) => {
@@ -117,6 +163,7 @@
 	>
 		<div class="grid gap-6">
 			<div class="grid md:grid-cols-3 gap-6">
+				<!-- Company Name Dropdown -->
 				<div class="grid gap-2">
 					<Label for="companyName">Company Name</Label>
 					<Select.Root
@@ -124,6 +171,7 @@
 						bind:value={$data.companyName}
 						name="companyName"
 						onValueChange={() => setTouched("companyName", true)}
+						disabled={!isDataLoaded}
 					>
 						<Tooltip.Root disabled={!$errors.companyName}>
 							<Tooltip.Trigger>
@@ -131,7 +179,13 @@
 									class="w-full"
 									aria-invalid={$errors.companyName ? true : undefined}
 								>
-									{$data.companyName ? $data.companyName : "Select Company"}
+									{#if !isDataLoaded}
+										Loading companies...
+									{:else if $data.companyName}
+										{$data.companyName}
+									{:else}
+										Select Company
+									{/if}
 								</Select.Trigger>
 							</Tooltip.Trigger>
 							<Tooltip.Content>
@@ -139,12 +193,18 @@
 							</Tooltip.Content>
 						</Tooltip.Root>
 						<Select.Content>
-							{#each sheetState.masterSheet.companyName as company}
-								<Select.Item value={company}>{company}</Select.Item>
-							{/each}
+							{#if isDataLoaded}
+								{#each companyNames as company}
+									<Select.Item value={company}>{company}</Select.Item>
+								{/each}
+							{:else}
+								<Select.Item value="" disabled>Loading...</Select.Item>
+							{/if}
 						</Select.Content>
 					</Select.Root>
 				</div>
+
+				<!-- Subscriber Name Dropdown -->
 				<div class="grid gap-2">
 					<Label for="subscriberName">Subscriber Name</Label>
 					{#if authState.user?.role === "admin"}
@@ -153,6 +213,7 @@
 							bind:value={$data.subscriberName}
 							name="subscriberName"
 							onValueChange={() => setTouched("subscriberName", true)}
+							disabled={!isDataLoaded}
 						>
 							<Tooltip.Root disabled={!$errors.subscriberName}>
 								<Tooltip.Trigger>
@@ -160,11 +221,13 @@
 										class="w-full"
 										aria-invalid={$errors.subscriberName ? true : undefined}
 									>
-										{$data.subscriberName
-											? sheetState.userSheet.find(
-													(s) => s.username === $data.subscriberName,
-												)?.name
-											: "Select Subscriber"}
+										{#if !isDataLoaded}
+											Loading users...
+										{:else if $data.subscriberName}
+											{users.find((s) => s.username === $data.subscriberName)?.name || $data.subscriberName}
+										{:else}
+											Select Subscriber
+										{/if}
 									</Select.Trigger>
 								</Tooltip.Trigger>
 								<Tooltip.Content>
@@ -172,9 +235,13 @@
 								</Tooltip.Content>
 							</Tooltip.Root>
 							<Select.Content>
-								{#each sheetState.userSheet as { username, name }}
-									<Select.Item value={username}>{name}</Select.Item>
-								{/each}
+								{#if isDataLoaded}
+									{#each users as { username, name }}
+										<Select.Item value={username}>{name}</Select.Item>
+									{/each}
+								{:else}
+									<Select.Item value="" disabled>Loading...</Select.Item>
+								{/if}
 							</Select.Content>
 						</Select.Root>
 					{:else}
@@ -185,12 +252,15 @@
 									id="subscriberName"
 									placeholder="Enter subscriber name"
 									readonly
+									value={authState.user?.name || ""}
 								/>
 							</Tooltip.Trigger>
 							<Tooltip.Content>{$errors.subscriberName}</Tooltip.Content>
 						</Tooltip.Root>
 					{/if}
 				</div>
+
+				<!-- Subscription Name -->
 				<div class="grid gap-2">
 					<Label for="subscriptionName">Subscription Name</Label>
 					<Tooltip.Root disabled={!$errors.subscriptionName}>
@@ -205,7 +275,9 @@
 					</Tooltip.Root>
 				</div>
 			</div>
+
 			<div class="grid sm:grid-cols-2 gap-6">
+				<!-- Price -->
 				<div class="grid gap-2">
 					<Label for="price">Price (&#8377;)</Label>
 					<Tooltip.Root disabled={!$errors.price}>
@@ -220,6 +292,8 @@
 						<Tooltip.Content>{$errors.price}</Tooltip.Content>
 					</Tooltip.Root>
 				</div>
+
+				<!-- Frequency -->
 				<div class="grid gap-2">
 					<Label>Frequency</Label>
 					<Select.Root
@@ -250,6 +324,8 @@
 					</Select.Root>
 				</div>
 			</div>
+
+			<!-- Purpose -->
 			<div class="grid gap-2">
 				<Label for="purpose">Purpose of Subscription</Label>
 				<Tooltip.Root disabled={!$errors.purpose}>
@@ -267,9 +343,12 @@
 				</Tooltip.Root>
 			</div>
 
-			<Button type="submit" disabled={$isSubmitting}>
+			<!-- Submit Button -->
+			<Button type="submit" disabled={$isSubmitting || !isDataLoaded}>
 				{#if $isSubmitting}
 					<Spinner /> Submitting
+				{:else if !isDataLoaded}
+					Loading Form...
 				{:else}
 					Submit
 				{/if}

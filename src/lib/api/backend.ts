@@ -21,6 +21,8 @@ export const backend = {
     // Users API
     getUsers: () => API.get("/users"),
 
+    getUsers1: () => API.get("/users1"),
+
     // Master API
     getMaster: () => API.get("/master"),
 
