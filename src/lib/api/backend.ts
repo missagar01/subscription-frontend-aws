@@ -13,7 +13,8 @@ export const backend = {
     getRenewals: () => API.get("/dashboard-routes/renewals"),
 
     // Approval API
-    getApprovals: () => API.get("/approval/all"),
+    // getApprovals: () => API.get("/approval/all"),
+    getApprovals: () => API.get("/subscription-approval/pending"),  // ✅ Changed from "/app
 
     // Payments API
     getPayments: () => API.get("/payment/all"),
