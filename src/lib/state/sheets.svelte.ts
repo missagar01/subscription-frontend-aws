@@ -18,6 +18,10 @@ export class SheetState {
     paymentSheet = $state<PaymentRow[]>([]);
     userSheet = $state<UserRow[]>([]);
     masterSheet = $state<Master>({ companyName: [] });
+    dashboardStats = $state<{ totalValue: number; totalSubscriptions: number }>({
+        totalValue: 0,
+        totalSubscriptions: 0,
+    });
 
     subscriptionLoading = $state(true);
     renewalLoading = $state(true);
@@ -105,6 +109,7 @@ export class SheetState {
             this.approvalSheet = data.approvalSheet ?? [];
             this.paymentSheet = data.paymentSheet ?? [];
             this.userSheet = data.userSheet ?? [];
+            this.dashboardStats = data.stats ?? { totalValue: 0, totalSubscriptions: 0 };
         } finally {
             this.subscriptionLoading =
                 this.renewalLoading =

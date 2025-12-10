@@ -59,7 +59,7 @@
 
 		// Filter by user role
 		const isUserData = (s: SubscriptionRow | RenewalRow) => {
-			return authState.user?.role === "admin" || s.subscriberName === authState.user?.username;
+			return authState.user?.role === "admin" || s.subscriberName === authState.user?.name;
 		};
 
 		return {
@@ -99,17 +99,7 @@
 			.map((r) => parseInt(r.price))
 			.reduce((acc, curr) => acc + curr, 0),
 	);
-	let totalValue = $derived(
-		filteredSheets.subscriptionSheet
-			.map((s) => {
-				const renewalCount = isNaN(parseInt(s.renewalCount))
-					? 1
-					: parseInt(s.renewalCount) + 1;
-				const price = parseInt(s.price);
-				return price * renewalCount;
-			})
-			.reduce((acc, curr) => acc + curr, 0),
-	);
+	let totalValue = $derived(sheetState.dashboardStats.totalValue);
 
 	let constlySubscriptions = $derived(filteredSheets.subscriptionSheet.sort((x, y) => parseInt(y.price) - parseInt(x.price)).slice(0, 5));
 
